@@ -6,20 +6,25 @@ from bs4 import BeautifulSoup
 import time
 import csv
 import math
+from threading import Thread
+from operator import itemgetter
 
 # Sets up selenium
 chrome_options = Options()
-#chrome_options.add_argument("--headless")
-s = Service("./Chromedriver/chromedriver.exe")
-driver = webdriver.Chrome(service=s, options=chrome_options)
+chrome_options.add_argument("--headless")
+
+data_listed = []
+missing_url = []  
 
 def write_csv(data_list):
     # Create the csv file
     f = open('data.csv', 'w')
-    writer = csv.writer(f)        
+    writer = csv.writer(f, lineterminator='\n')        
     
+    data_list = sorted(data_list, key=itemgetter(0))
+
     # Write header row
-    header_row = ["Account#","Principal","Owner","Bank Code","Interest","Address","Deductions","Total","City/State","Int.Date","Location","B","L","Q","L.Pay Date","Certificate","Date of Sale","Amount","Subsequents","Type","Status","Lien Holder","Paid_by_0","Paid_by_1","Paid_by_2","Paid_by_3","Paid_by_4","Paid_by_5","Paid_by_6","Paid_by_7","Paid_by_8","Paid_by_9","Paid_by_10","Paid_by_11","Paid_by_12","Paid_by_13","Paid_by_14","Paid_by_15","Paid_by_16","Paid_by_17","Paid_by_18","Paid_by_19"]
+    header_row = ["Account#","Principal","Owner","Bank Code","Interest","Address","Deductions","Total","City/State","Int.Date","Location","B","L","Q","L.Pay Date","Certificate","Date of Sale","Amount","Subsequents","Type","Status","Lien Holder","Paid_by_0","Paid_by_1","Paid_by_2","Paid_by_3","Paid_by_4","Paid_by_5","Paid_by_6","Paid_by_7","Paid_by_8","Paid_by_9","Paid_by_10","Paid_by_11","Paid_by_12","Paid_by_13","Paid_by_14","Paid_by_15","Paid_by_16","Paid_by_17","Paid_by_18","Paid_by_19","Paid_by_20","Paid_by_21","Paid_by_22","Paid_by_23","Paid_by_24","Paid_by_25","Paid_by_26","Paid_by_27", "Paid_by_28","Paid_by_29"]
     writer.writerow(header_row)
 
     # Write rows
@@ -44,11 +49,11 @@ def get_data(page_source):
     l_code =  ""
     q_code = ""                
     if len(blq) > 0:
-        b_code = blq[0]  
+        b_code = blq[0].lstrip("0") 
     if len(blq) > 1:
-        l_code = blq[1]  
+        l_code = blq[1].lstrip("0")  
     if len(blq) > 2:
-        q_code = blq[2]  
+        q_code = blq[2].lstrip("0")  
 
     principal = first_row_divs[5].text.strip()
 
@@ -72,8 +77,11 @@ def get_data(page_source):
 
     # Getting the paid by data
     paid_bys = []
-    table_rows = soup.find("div", {"class": "col-md-7 col-sm-7 col-md-offset-1 col-sm-offset-1"}).find("table").find("tbody").find_all("tr")
-    for i in range(1, 20):
+    table_rows = []
+    table = soup.find("div", {"class": "col-md-7 col-sm-7 col-md-offset-1 col-sm-offset-1"}).find("table").find("tbody")
+    if table:
+        table_rows = soup.find("div", {"class": "col-md-7 col-sm-7 col-md-offset-1 col-sm-offset-1"}).find("table").find("tbody").find_all("tr")
+    for i in range(30):
         if len(table_rows) > i:
             paid_by = table_rows[i].find_all("td")[9].text.strip()
             paid_bys.append(paid_by)
@@ -113,33 +121,64 @@ def get_urls(from_page, to_page):
 
     return urls
 
-def main():
-    # Open the page
-    missing_url = []
-    data_list = []
-    for url in get_urls(1, 200):
+def get_page(f, t):
+    # Define driver
+    s = Service("./Chromedriver/chromedriver.exe")
+    driver = webdriver.Chrome(service=s, options=chrome_options)  
+
+    for url in get_urls(f, t):
         print(url)
+
         try:
-            # Open the browser
+            # Open the browser          
             driver.get(url)
-            
+
             # Get the data and store it
             data = get_data(driver.page_source)
-            data_list.append(data)
+            data_listed.append(data)
 
         except Exception as e:
             # Print out the error
             print("some error: " + str(e))
             print("Didn't get: " + url)
-            missing_url.append(url)
+            missing_url.append(url)    
 
-    write_csv(data_list)
-    
     # Close the drive
     driver.close()
     driver.quit()
 
+
+def main():            
+    # Get input data
+    first_account = int(input("First account number: "))   
+    last_account = int(input("Last account number: "))+1   
+    speed = int(input("Speed/Threading - Enter 2-4 for slow pcs, 10 to 20 for fast pcs: "))   
+    
+    number_of_accounts = int(last_account - first_account) 
+    
+    # Timing the function
+    start_time = time.time()
+
+    # Threading
+    max_threads = speed
+    threads = []
+    start_from = first_account / (number_of_accounts / max_threads)
+    for i in range(0, max_threads):
+        from_p = int(start_from * (number_of_accounts / max_threads))
+        to_p =  int(start_from * (number_of_accounts / max_threads) + (number_of_accounts / max_threads))
+        t = Thread(target=get_page, args=(from_p, to_p))
+        t.start()
+        threads.append(t)
+        start_from += 1
+
+    for t in threads:
+        t.join()
+
+    write_csv(data_listed)
+
+    # Print out status
     print("Data saved")
+    print("It took: " + str(round((time.time() - start_time), 2)))
     print("Didn't get:")
     for missing in missing_url:
         print(missing)
